@@ -1,0 +1,157 @@
+---
+title: "Project 1"
+author: "Valentino Djaja Sastra"
+date: "9/14/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading and preprocessing the data
+
+```{r load}
+# Download the data & unzip
+fileURL = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+download.file(fileURL, destfile ="./Data.zip")
+unzip(zipfile="./Data.zip")
+
+# Read csv into R data frame
+data_vec <- read.csv("activity.csv", header = TRUE)
+data_vec$day <- weekdays(as.Date(data_vec$date))
+data_vec$DateTime<- as.POSIXct(data_vec$date, format="%Y-%m-%d")
+
+# Subset data without NA into clean_data data frame
+clean_data <- data_vec[!is.na(data_vec$steps),]
+
+# Convert data frame into a tibble
+library(tibble)
+df <- as_tibble(clean_data)
+```
+
+## What is the mean total number of steps taken per day?
+
+```{r daily_mean}
+# Compute total number of steps by date
+library(dplyr)
+df_sum <- df %>% group_by(date) %>% 
+          dplyr::summarize(steps = sum(steps, na.rm = TRUE)) %>% 
+          arrange(date)
+```
+
+```{r plot_hist}
+# Plot histogram 
+str1 = "Total No. of Steps per Day"
+str2 = "Histogram of Total Steps per Day"
+hist(df_sum$steps, xlab = str1, main = str2)
+```
+
+```{r mean_med}
+# Generate mean & median of total no. of steps per day
+b <- as.integer(round(summarize(df_sum, 
+          avg_steps = mean(steps, na.rm = TRUE), 
+          median_steps = median(steps, na.rm = TRUE))))
+
+names(b) <- c("avg_steps", "median_steps")
+print(b)
+```
+
+* Mean of total number of steps taken per day: `r b[1]` steps
+* Median of total number of steps taken per day: `r b[2]` steps
+
+## What is the average daily activity pattern?
+
+Make a time series plot (i.e. type = “l”) of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis)
+
+```{r plot_steps_interval}
+# Compute mean of steps by interval
+df2 <- df %>% group_by(interval) %>% dplyr::summarize(avg_steps = mean(steps))
+
+# Generate plot of average no. of steps vs interval
+with(df2, plot(interval, avg_steps, 
+               xlab = "Interval", 
+               ylab = "Avg. No. of Steps", 
+               main = "Avg. No. of Steps per Interval", 
+               type = "l"))
+```
+
+```{r maximum_steps}
+# Calculate maximum avg. no. of steps and corresponding interval 
+max_steps <- round(max(df2$avg_steps))
+max_interval <- df2[df2$avg_steps == max(df2$avg_steps), 1]
+```
+
+* The maximum number of steps for a 5-minute interval was `r max_steps` steps.
+* The 5-minute interval which had the maximum number of steps was `r max_interval` interval.
+
+## Imputing missing values
+
+Number of NA entries: 
+
+```{r NA_count}
+NA_counter <- sum(is.na(data_vec$steps))
+```
+
+Total number of rows with steps = "NA" is `r NA_counter`
+
+NAs of missing steps will be substituted with the average 5-minute interval *based on the day of the week*.
+
+```{r new_data}
+# Generating new data with imputed NAs values in steps
+df3 <- df %>% group_by(interval, day) %>% dplyr::summarize(avg_steps = mean(steps))
+nadata <- as_tibble(data_vec[is.na(data_vec$steps),])
+newdata <- merge(nadata, df3, by = c("interval", "day"))
+newdata2 <- select(newdata, steps = avg_steps, date, interval, day, DateTime)
+new_master <- arrange(rbind(df, newdata2), DateTime)
+```
+
+```{r plot_hist_comp}
+# Generating histogram of comparisons
+df_sum_new <- new_master %>% group_by(date) %>% 
+            dplyr::summarize(steps = sum(steps, na.rm = TRUE)) %>%
+            arrange(date)
+str1 = "Total No. of Steps per Day"
+str2 = "Histogram of Total Steps per Day"
+hist(df_sum_new$steps, xlab = str1, main = str2, col = "Black")
+hist(df_sum$steps, xlab = str1, main = str2, col = "Grey", add = TRUE)
+legend("topright", c("Imputed NAs", "Non-NA Data only"), fill = c("black", "grey"))
+```
+
+```{r new_means_median}
+# Compute new mean and median with NA adjustments
+c <- as.integer(round(summarize(df_sum_new, 
+          avg_steps = mean(steps, na.rm = TRUE), 
+          median_steps = median(steps, na.rm = TRUE))))
+
+names(c) <- c("avg_steps", "median_steps")
+print(c)
+```
+
+With NAs adjustments:
+
+* Mean of total number of steps taken per day: `r c[1]` steps
+* Median of total number of steps taken per day: `r c[2]` steps
+
+## Are there differences in activity patterns between weekdays and weekends?
+
+```{r DayCat_generate}
+# Generate new column to identify weekend or weekdays
+new_master$DayCat <- ifelse(new_master$day %in% c("Saturday", "Sunday"), "Weekend", "Weekday")
+```
+
+```{r summary_by_DayCat}
+# Summarize data by Day Category (weekend/weekdays) and interval 
+df_sum_3 <- new_master %>% group_by(interval, DayCat) %>% dplyr::summarize(avg_steps = mean(steps))
+```
+
+```{r latt_plot}
+# Plot comparison of no. of steps between weekend and weekdays 
+library(lattice)
+xyplot(avg_steps ~ interval | DayCat, data = df_sum_3, type="l",  layout = c(1,2),
+       main="Avg. Steps per Interval Based on Type of Day", 
+       ylab="Avg. Number of Steps", xlab="Interval")
+
+```
+
+Yes, the step activity trends differ between weekdays and weekends. This is possibly due to difference in timing of free periods and opportunity to pursue activities between the two periods, i.e. weekends and weekdays. 
